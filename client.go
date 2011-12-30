@@ -1,48 +1,19 @@
 package main
 
 import (
-	"crypto"
-	"crypto/dsa"
 	"crypto/openpgp"
-	pgperror "crypto/openpgp/error"
 	"crypto/openpgp/packet"
-	"crypto/rsa"
-	"http"
-	"io"
-	"io/ioutil"
-	"os"
-	"crypto/rand"
+	"exp/terminal"
 	"flag"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"net/url"
+	"os"
 	"path"
-	"strconv"
-	"time"
-	"unsafe"
-	"url"
 )
 
-// copied from crypto/openpgp/packet.(*Signature).Sign()
-func MakeSignature(pgpsig *packet.Signature, priv *packet.PrivateKey, digest []byte) (err os.Error) {
-	sig := (*Signature)(unsafe.Pointer(pgpsig))
-	switch priv.PubKeyAlgo {
-	case packet.PubKeyAlgoRSA, packet.PubKeyAlgoRSASignOnly:
-		sig.RSASignature.bytes, err = rsa.SignPKCS1v15(rand.Reader, priv.PrivateKey.(*rsa.PrivateKey), sig.Hash, digest)
-		sig.RSASignature.bitLength = uint16(8 * len(sig.RSASignature.bytes))
-	case packet.PubKeyAlgoDSA:
-		r, s, err := dsa.Sign(rand.Reader, priv.PrivateKey.(*dsa.PrivateKey), digest)
-		if err == nil {
-			sig.DSASigR.bytes = r.Bytes()
-			sig.DSASigR.bitLength = uint16(8 * len(sig.DSASigR.bytes))
-			sig.DSASigS.bytes = s.Bytes()
-			sig.DSASigS.bitLength = uint16(8 * len(sig.DSASigS.bytes))
-		}
-	default:
-		err = pgperror.UnsupportedError("public key algorithm: " + strconv.Itoa(int(sig.PubKeyAlgo)))
-	}
-
-	return
-}
-
-func RemoteHash(serverUrl, path string, pgpSuffix []byte) (digest []byte, er os.Error) {
+func RemoteHash(serverUrl, path string, pgpSuffix []byte) (digest []byte, er error) {
 	form := make(url.Values)
 	form.Add("path", path)
 	form.Add("suffix", string(pgpSuffix))
@@ -50,47 +21,21 @@ func RemoteHash(serverUrl, path string, pgpSuffix []byte) (digest []byte, er os.
 	if er != nil {
 		return
 	}
-
 	digest, er = ioutil.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned status %s: %s", resp.Status, digest)
+	}
 	return
 }
 
-func RemoteDetachSign(w io.Writer, signer *openpgp.Entity, remoteUrl, path string) os.Error {
-	if signer.PrivateKey == nil {
-		return pgperror.InvalidArgumentError("signing key doesn't have a private key")
-	}
-	if signer.PrivateKey.Encrypted {
-		return pgperror.InvalidArgumentError("signing key is encrypted")
-	}
-
-	sig := new(packet.Signature)
-	sig.SigType = packet.SigTypeBinary
-	sig.PubKeyAlgo = signer.PrivateKey.PubKeyAlgo
-	sig.Hash = crypto.SHA256
-	sig.CreationTime = uint32(time.Seconds())
-	sig.IssuerKeyId = &signer.PrivateKey.KeyId
-
-	// prepare outSubpackets and hash suffix.
-	sig.Sign(nil, nil)
-	pgpSuffix := sig.HashSuffix
-	digest, err := RemoteHash(remoteUrl, path, pgpSuffix)
-	if err != nil {
-		return err
-	}
-
-	err = MakeSignature(sig, signer.PrivateKey, digest)
-	if err != nil {
-		return err
-	}
-
-	return sig.Serialize(w)
+func PromptPassphrase(k *packet.PrivateKey) ([]byte, error) {
+	fmt.Printf("Enter passphrase for key ID %x: ", k.KeyId)
+	pass, er := terminal.ReadPassword(0)
+	fmt.Println("done.")
+	return pass, er
 }
 
-func PromptPassphrase(k *packet.PrivateKey) ([]byte, os.Error) {
-   
-}
-
-func GetSigner(keyringPath string, id string) (*openpgp.Entity, os.Error) {
+func GetSigner(keyringPath string, id string) (*openpgp.Entity, error) {
 	f, er := os.Open(keyringPath)
 	if er != nil {
 		return nil, er
@@ -98,28 +43,43 @@ func GetSigner(keyringPath string, id string) (*openpgp.Entity, os.Error) {
 	defer f.Close()
 
 	entities, err := openpgp.ReadKeyRing(f)
+	if err != nil {
+		return nil, err
+	}
 	for _, entity := range entities {
-		if entity.PrivateKey != nil {
-			passphrase := PromptPassphrase(entity.PrivateKey)
-			err = entity.PrivateKey.Decrypt(passphrase)
+		switch {
+		case entity.PrivateKey == nil:
+			continue
+		case !entity.PrivateKey.Encrypted:
+			return entity, nil
+		default:
+			passphrase, err := PromptPassphrase(entity.PrivateKey)
+			if err == nil {
+				err = entity.PrivateKey.Decrypt(passphrase)
+			}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "could not decrypt private key: %s\n", err)
-			} else {
-				return entity
+				continue
 			}
+			return entity, nil
 		}
 	}
-	return fmt.Errorf("no suitable private key found")
+	return nil, fmt.Errorf("no suitable private key found")
 }
 
 func main() {
-	defaultKeyring := os.Getenv("HOME") + ".gnupg/secring.gpg"
+	defaultKeyring := os.Getenv("HOME") + "/.gnupg/secring.gpg"
 	keyring := flag.String("keyring", defaultKeyring, "path to a binary, secret keyring")
 	keyid := flag.String("id", "", "(not implemented) key ID to use")
-	server := flag.String("server", "localhost:10022", "remote hash server address")
+	server := flag.String("server", "http://localhost:10022/hash", "remote hash server address")
 	flag.Parse()
 
 	remotepath := flag.Arg(0)
+	if remotepath == "" {
+		fmt.Println("no remote filename specified!")
+		return
+	}
+
 	signer, err := GetSigner(*keyring, *keyid)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

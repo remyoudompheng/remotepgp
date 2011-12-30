@@ -5,12 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"hash"
-	"http"
 	"io"
+	"net/http"
 	"os"
 )
 
-func HashFile(filepath string) (hash.Hash, os.Error) {
+func HashFile(filepath string) (hash.Hash, error) {
 	h := crypto.SHA256.New()
 	f, er := os.Open(filepath)
 	if er != nil {
@@ -25,13 +25,13 @@ func HashFile(filepath string) (hash.Hash, os.Error) {
 	return h, nil
 }
 
-func GetHash(filepath string, pgpSuffix []byte) (digest []byte, er os.Error) {
+func GetHash(filepath string, pgpSuffix []byte) (digest []byte, er error) {
 	h, er := HashFile(filepath)
 	if er != nil {
 		return nil, er
 	}
 	h.Write(pgpSuffix)
-	digest = h.Sum()
+	digest = h.Sum(nil)
 	return
 }
 
@@ -42,6 +42,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	req.ParseForm()
 	filepath := req.Form.Get("path")
 	suffix := req.Form.Get("suffix")
 	if filepath == "" || suffix == "" {
@@ -50,6 +51,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	fmt.Println("request to hash ", filepath)
 	digest, er := GetHash(filepath, []byte(suffix))
 	if er != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -62,9 +64,9 @@ func handler(w http.ResponseWriter, req *http.Request) {
 }
 
 func main() {
-  listenaddr := flag.String("addr", "localhost:10022", "address to listen on")
-  flag.Parse()
+	listenaddr := flag.String("addr", "localhost:10022", "address to listen on")
+	flag.Parse()
 
-  http.HandleFunc("/hash", handler)
-  http.ListenAndServe(*listenaddr, nil)
+	http.HandleFunc("/hash", handler)
+	http.ListenAndServe(*listenaddr, nil)
 }
