@@ -1,0 +1,12 @@
+Usage:
+
+* Install Go (weekly snapshot)
+
+* Run ./server on the machine of your choice
+
+* Run ./client -h to get help about options
+
+* Run ./client -server http://remote.host:10022/hash /etc/issue
+
+* Follow the instructions. You get issue.sig in the current directory.
+
