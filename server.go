@@ -12,14 +12,14 @@ import (
 
 func HashFile(filepath string) (hash.Hash, error) {
 	h := crypto.SHA256.New()
-	f, er := os.Open(filepath)
-	if er != nil {
-		return nil, fmt.Errorf("could not open file %s for reading: %s", filepath, er)
+	f, err := os.Open(filepath)
+	if err != nil {
+		return nil, fmt.Errorf("could not open file %s for reading: %s", filepath, err)
 	}
 	defer f.Close()
-	_, er = io.Copy(h, f)
-	if er != nil {
-		return nil, fmt.Errorf("hashing error: %s")
+	_, err = io.Copy(h, f)
+	if err != nil {
+		return nil, fmt.Errorf("hashing error: %s", err)
 	}
 
 	return h, nil

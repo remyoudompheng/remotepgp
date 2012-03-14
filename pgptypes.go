@@ -7,16 +7,16 @@ package main
 import (
 	"crypto"
 	"crypto/dsa"
-	"crypto/openpgp"
-	pgperror "crypto/openpgp/error"
-	"crypto/openpgp/packet"
-	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
 	"io"
 	"strconv"
 	"time"
 	"unsafe"
+
+	"code.google.com/p/go.crypto/openpgp"
+	"code.google.com/p/go.crypto/openpgp/errors"
+	"code.google.com/p/go.crypto/openpgp/packet"
 )
 
 type parsedMPI struct {
@@ -69,15 +69,15 @@ func prepareSign(sig *packet.Signature) {
 	defer func() {
 		_ = recover()
 	}()
-	sig.Sign(nil, nil)
+	sig.Sign(nil, nil, nil)
 }
 
 func RemoteDetachSign(w io.Writer, signer *openpgp.Entity, remoteUrl, path string) error {
 	if signer.PrivateKey == nil {
-		return pgperror.InvalidArgumentError("signing key doesn't have a private key")
+		return errors.InvalidArgumentError("signing key doesn't have a private key")
 	}
 	if signer.PrivateKey.Encrypted {
-		return pgperror.InvalidArgumentError("signing key is encrypted")
+		return errors.InvalidArgumentError("signing key is encrypted")
 	}
 
 	sig := new(packet.Signature)
@@ -106,12 +106,15 @@ func RemoteDetachSign(w io.Writer, signer *openpgp.Entity, remoteUrl, path strin
 // copied from crypto/openpgp/packet.(*Signature).Sign()
 func MakeSignature(pgpsig *packet.Signature, priv *packet.PrivateKey, digest []byte) (err error) {
 	sig := (*Signature)(unsafe.Pointer(pgpsig))
+	var config *packet.Config
 	switch priv.PubKeyAlgo {
 	case packet.PubKeyAlgoRSA, packet.PubKeyAlgoRSASignOnly:
-		sig.RSASignature.bytes, err = rsa.SignPKCS1v15(rand.Reader, priv.PrivateKey.(*rsa.PrivateKey), sig.Hash, digest)
+		sig.RSASignature.bytes, err = rsa.SignPKCS1v15(config.Random(), priv.PrivateKey.(*rsa.PrivateKey), sig.Hash, digest)
 		sig.RSASignature.bitLength = uint16(8 * len(sig.RSASignature.bytes))
 	case packet.PubKeyAlgoDSA:
-		r, s, err := dsa.Sign(rand.Reader, priv.PrivateKey.(*dsa.PrivateKey), digest)
+		dsaPriv := priv.PrivateKey.(*dsa.PrivateKey)
+
+		r, s, err := dsa.Sign(config.Random(), dsaPriv, digest)
 		if err == nil {
 			sig.DSASigR.bytes = r.Bytes()
 			sig.DSASigR.bitLength = uint16(8 * len(sig.DSASigR.bytes))
@@ -119,7 +122,7 @@ func MakeSignature(pgpsig *packet.Signature, priv *packet.PrivateKey, digest []b
 			sig.DSASigS.bitLength = uint16(8 * len(sig.DSASigS.bytes))
 		}
 	default:
-		err = pgperror.UnsupportedError("public key algorithm: " + strconv.Itoa(int(sig.PubKeyAlgo)))
+		err = errors.UnsupportedError("public key algorithm: " + strconv.Itoa(int(sig.PubKeyAlgo)))
 	}
 
 	return
