@@ -1,10 +1,10 @@
-all: client server
+all: bin.client bin.server
 
-client: client.go pgptypes.go
-	go build -o client client.go pgptypes.go
+bin.client: client/client.go client/pgptypes.go
+	go build -o bin.client ./client
 
-server: server.go
-	go build server.go
+bin.server: server/server.go
+	go build -o bin.server ./server
 
 clean:
 	rm -f client server

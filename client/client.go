@@ -1,7 +1,6 @@
 package main
 
 import (
-	"exp/terminal"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -10,8 +9,9 @@ import (
 	"os"
 	"path"
 
-	"code.google.com/p/go.crypto/openpgp"
-	"code.google.com/p/go.crypto/openpgp/packet"
+	"golang.org/x/crypto/openpgp"
+	"golang.org/x/crypto/openpgp/packet"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 func RemoteHash(serverUrl, path string, pgpSuffix []byte) (digest []byte, er error) {

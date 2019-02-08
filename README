@@ -1,3 +1,9 @@
+DO NOT USE THIS PROGRAM IF YOU CARE ABOUT SECURITY.
+
+This program is a toy program to demonstrate creating
+a PGP signature for a possibly large remote file, without
+actually downlaoding it.
+
 Usage:
 
 * Install Go (weekly snapshot)
